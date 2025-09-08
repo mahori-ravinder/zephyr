@@ -34,6 +34,9 @@
 #define LOG_MODULE_NAME bttester_gatt
 LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_BTTESTER_LOG_LEVEL);
 
+extern void tput_gpio_led1_toggle(void);
+extern void tput_gpio_led2_toggle(void);
+
 #define MAX_BUFFER_SIZE 2048
 #define MAX_UUID_LEN 16
 
@@ -1676,9 +1679,12 @@ static uint8_t read_multiple(const void *cmd, uint16_t cmd_len,
 	return BTP_STATUS_DELAY_REPLY;
 }
 
+static int use_eatt=0;
+
 static uint8_t read_multiple_var(const void *cmd, uint16_t cmd_len,
 				 void *rsp, uint16_t *rsp_len)
 {
+    //tput_gpio_led2_toggle();
 	const struct btp_gatt_read_multiple_var_cmd *cp = cmd;
 	uint16_t handles[5];
 	struct bt_conn *conn;
@@ -1712,7 +1718,13 @@ static uint8_t read_multiple_var(const void *cmd, uint16_t cmd_len,
 	read_params.multiple.handles = handles; /* not used in read func */
 	read_params.multiple.variable = true;
 #if defined(CONFIG_BT_EATT)
-	read_params.chan_opt = BT_ATT_CHAN_OPT_NONE;
+    if(use_eatt) {
+        read_params.chan_opt = BT_ATT_CHAN_OPT_ENHANCED_ONLY;
+    }
+    else {
+        read_params.chan_opt = BT_ATT_CHAN_OPT_UNENHANCED_ONLY;
+        use_eatt=1;
+    }
 #endif
 
 	/* TODO should be handled as user_data via CONTAINER_OF macro */
@@ -1725,8 +1737,9 @@ static uint8_t read_multiple_var(const void *cmd, uint16_t cmd_len,
 	}
 
 	bt_conn_unref(conn);
-
-	return BTP_STATUS_DELAY_REPLY;
+    //tput_gpio_led1_toggle();
+	//return BTP_STATUS_SUCCESS;
+    return BTP_STATUS_DELAY_REPLY;
 }
 
 static uint8_t write_without_rsp(const void *cmd, uint16_t cmd_len,
@@ -1793,9 +1806,12 @@ static void write_rsp(struct bt_conn *conn, uint8_t err,
 
 static struct bt_gatt_write_params write_params;
 
+
+
 static uint8_t write_data(const void *cmd, uint16_t cmd_len,
 			  void *rsp, uint16_t *rsp_len)
 {
+    //tput_gpio_led1_toggle();
 	const struct btp_gatt_write_cmd *cp = cmd;
 	struct bt_conn *conn;
 

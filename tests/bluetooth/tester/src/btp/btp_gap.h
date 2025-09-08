@@ -351,15 +351,36 @@ struct btp_gap_set_rpa_timeout_cmd {
 	uint16_t rpa_timeout;
 } __packed;
 
-/* events */
+#define BTP_GAP_CMD_BIG_CREATE_SYNC         0x2C
+struct btp_gap_create_big_sync_cmd {
+	bt_addr_le_t address;
+    uint8_t sid;
+    uint8_t num_bis;
+    uint32_t bis_bitfield;
+    uint32_t mse;
+    uint16_t sync_timeout;
+    uint8_t encryption;
+    //TODO:Broadcast code can be a 16 bytes array. For now we will not add it
+} __packed;
+
+/**
+ * *********************************************************************
+ * Events Below
+ * *********************************************************************
+ */
+
 #define BTP_GAP_EV_NEW_SETTINGS			0x80
 struct btp_gap_new_settings_ev {
 	uint32_t current_settings;
 } __packed;
 
+
+
 #define BTP_GAP_DEVICE_FOUND_FLAG_RSSI		0x01
 #define BTP_GAP_DEVICE_FOUND_FLAG_AD		0x02
 #define BTP_GAP_DEVICE_FOUND_FLAG_SD		0x04
+
+
 
 #define BTP_GAP_EV_DEVICE_FOUND			0x81
 struct btp_gap_device_found_ev {
@@ -477,6 +498,52 @@ struct btp_gap_encryption_change_ev {
 	bt_addr_le_t address;
 	uint8_t enabled;
 	uint8_t key_size;
+} __packed;
+
+#define BTP_GAP_EV_PERIODIC_BIGINFO		    0x97
+struct btp_gap_biginfo_ev {
+	bt_addr_le_t address;
+    
+    uint16_t sync_handle;
+
+	/** Advertiser SID */
+	uint8_t sid;
+
+	/** Number of BISes in the BIG */
+	uint8_t  num_bis;
+
+	/** Number of subevents in each isochronous event */
+	uint8_t  nse;
+
+	/** Interval between two BIG anchor point (N * 1.25 ms) */
+	uint16_t iso_interval;
+
+	/** The number of new payloads in each BIS event */
+	uint8_t  burst_number;
+
+	/** Offset used for pre-transmissions */
+	uint8_t  offset;
+
+	/** The number of times a payload is transmitted in a BIS event */
+	uint8_t  rep_count;
+
+	/** Maximum size, in octets, of the payload */
+	uint16_t max_pdu;
+
+	/** The interval, in microseconds, of periodic SDUs. */
+	uint32_t sdu_interval;
+
+	/** Maximum size of an SDU, in octets. */
+	uint16_t max_sdu;
+
+	/** Channel PHY */
+	uint8_t  phy;
+
+	/** Channel framing mode */
+	uint8_t  framing;
+
+	/** Whether or not the BIG is encrypted */
+	uint8_t  encryption;
 } __packed;
 
 #if defined(CONFIG_BT_EXT_ADV)

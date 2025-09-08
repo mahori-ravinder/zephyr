@@ -83,12 +83,15 @@ static const struct btp_handler *find_btp_handler(uint8_t service, uint8_t opcod
 
 	for (uint8_t i = 0; i < service_handler[service].num; i++) {
 		if (service_handler[service].handlers[i].opcode == opcode) {
+            
 			return &service_handler[service].handlers[i];
 		}
 	}
 
 	return NULL;
 }
+void tput_gpio_led1_toggle(void);
+void tput_gpio_led2_toggle(void);
 
 static void cmd_handler(void *p1, void *p2, void *p3)
 {
@@ -106,6 +109,11 @@ static void cmd_handler(void *p1, void *p2, void *p3)
 			hdr->service, hdr->opcode, hdr->index);
 
 		btp = find_btp_handler(hdr->service, hdr->opcode);
+        if(0x20==hdr->opcode && hdr->service==0x02){
+                //Recieved the message at least here.
+                //Toggle 1 if we received the message
+                tput_gpio_led1_toggle();
+            }
 		if (btp) {
 			uint16_t len = sys_le16_to_cpu(hdr->len);
 
@@ -118,6 +126,8 @@ static void cmd_handler(void *p1, void *p2, void *p3)
 			} else {
 				status = btp->func(hdr->data, len,
 						   cmd->rsp, &rsp_len);
+                           //toggle 2 if executed
+                           tput_gpio_led2_toggle();
 			}
 
 			/* This means that caller likely overwrote rsp buffer */

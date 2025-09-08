@@ -1961,10 +1961,35 @@ static void pa_sync_recv_cb(struct bt_le_per_adv_sync *sync,
 		     ev, sizeof(*ev) + ev->data_len);
 }
 
+static void biginfo_cb(struct bt_le_per_adv_sync *sync,
+		       const struct bt_iso_biginfo *biginfo)
+{
+    struct btp_gap_biginfo_ev ev;
+
+	ev.sync_handle = sys_cpu_to_le16(sync->handle);
+	ev.sid = biginfo->sid;
+	ev.num_bis = biginfo->num_bis;
+	ev.nse = biginfo->sub_evt_count;
+	ev.iso_interval = BT_CONN_INTERVAL_TO_US(biginfo->iso_interval);
+	ev.burst_number = biginfo->burst_number;
+	ev.offset = biginfo->offset;
+	ev.rep_count = biginfo->rep_count;
+	ev.max_pdu = biginfo->max_pdu;
+	ev.sdu_interval = biginfo->sdu_interval;
+	ev.max_sdu = biginfo->max_sdu;
+	ev.phy = biginfo->phy;
+	ev.framing = biginfo->framing;
+	ev.encryption = biginfo->encryption;
+
+	tester_event(BTP_SERVICE_ID_GAP, BTP_GAP_EV_PERIODIC_BIGINFO,
+		     &ev, sizeof(ev));
+}
+
 static struct bt_le_per_adv_sync_cb pa_sync_cb = {
 	.synced = pa_sync_synced_cb,
 	.term = pa_sync_terminated_cb,
 	.recv = pa_sync_recv_cb,
+    .biginfo = biginfo_cb,
 };
 
 #if defined(CONFIG_BT_PER_ADV)
@@ -2197,9 +2222,11 @@ int tester_gap_padv_stop_sync(void)
 }
 
 #if defined(CONFIG_BT_PER_ADV)
+
 static uint8_t padv_create_sync(const void *cmd, uint16_t cmd_len,
 				void *rsp, uint16_t *rsp_len)
 {
+   
 	int err;
 	const struct btp_gap_padv_create_sync_cmd *cp = cmd;
 	struct bt_le_per_adv_sync_param create_params = {0};
@@ -2288,6 +2315,41 @@ static uint8_t padv_padv_sync_transfer_start(const void *cmd, uint16_t cmd_len,
 
 	return BTP_STATUS_SUCCESS;
 }
+
+static uint8_t padv_big_sync_start(const void *cmd, uint16_t cmd_len,
+					     void *rsp, uint16_t *rsp_len)
+{
+	const struct btp_gap_create_big_sync_cmd *cp = cmd;
+	struct bt_conn *conn;
+	int err;
+
+	if (pa_sync == NULL) {
+		return BTP_STATUS_FAILED;
+	}
+
+	if (cp->address.type == BTP_BR_ADDRESS_TYPE) {
+		return BTP_STATUS_FAILED;
+	}
+
+	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &cp->address);
+	if (conn == NULL) {
+		return BTP_STATUS_FAILED;
+	}
+
+	err = bt_le_per_adv_sync_transfer(pa_sync, conn,
+					  sys_le16_to_cpu(cp->service_data));
+
+	bt_conn_unref(conn);
+
+	if (err < 0) {
+		return BTP_STATUS_FAILED;
+	}
+
+	return BTP_STATUS_SUCCESS;
+}
+
+	
+
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_SENDER) */
 
 #if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_RECEIVER)
@@ -2526,6 +2588,11 @@ static const struct btp_handler handlers[] = {
 		.opcode = BTP_GAP_PADV_SYNC_TRANSFER_START,
 		.expect_len = sizeof(struct btp_gap_padv_sync_transfer_start_cmd),
 		.func = padv_padv_sync_transfer_start,
+	},
+	{
+		.opcode = BTP_GAP_CMD_BIG_CREATE_SYNC,
+		.expect_len = sizeof(struct btp_gap_create_big_sync_cmd),
+		.func = padv_big_sync_start,
 	},
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_SENDER) */
 #if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_RECEIVER)

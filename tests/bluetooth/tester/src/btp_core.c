@@ -164,6 +164,8 @@ static uint8_t register_service(const void *cmd, uint16_t cmd_len,
 	}
 
 	switch (cp->id) {
+        //TODO:RAVE
+        //Register Gatt Client Service
 	case BTP_SERVICE_ID_GAP:
 		status = tester_init_gap();
 		break;

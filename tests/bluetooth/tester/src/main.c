@@ -14,8 +14,11 @@ LOG_MODULE_REGISTER(LOG_MODULE_NAME, CONFIG_BTTESTER_LOG_LEVEL);
 
 #include "btp/btp.h"
 
+extern void tput_gpio_init(void);
+
 int main(void)
 {
+    tput_gpio_init();
 	tester_init();
 	return 0;
 }

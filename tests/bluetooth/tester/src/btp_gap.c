@@ -2319,6 +2319,9 @@ static uint8_t padv_padv_sync_transfer_start(const void *cmd, uint16_t cmd_len,
 static uint8_t padv_big_sync_start(const void *cmd, uint16_t cmd_len,
 					     void *rsp, uint16_t *rsp_len)
 {
+    return BTP_STATUS_FAILED;
+    //TODO:RAVE
+    #if 0
 	const struct btp_gap_create_big_sync_cmd *cp = cmd;
 	struct bt_conn *conn;
 	int err;
@@ -2346,6 +2349,7 @@ static uint8_t padv_big_sync_start(const void *cmd, uint16_t cmd_len,
 	}
 
 	return BTP_STATUS_SUCCESS;
+    #endif 
 }
 
 	

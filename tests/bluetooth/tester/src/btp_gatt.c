@@ -1638,7 +1638,7 @@ static uint8_t read_multiple(const void *cmd, uint16_t cmd_len,
 	    (cmd_len != sizeof(*cp) + (cp->handles_count * sizeof(cp->handles[0])))) {
 		return BTP_STATUS_FAILED;
 	}
-
+    
 	if (cp->handles_count == 0 || cp->handles_count > ARRAY_SIZE(handles)) {
 		return BTP_STATUS_FAILED;
 	}
@@ -1714,7 +1714,7 @@ static uint8_t read_multiple_var(const void *cmd, uint16_t cmd_len,
 	}
 
 	read_params.func = read_cb;
-	read_params.handle_count = i;
+	read_params.handle_count = cp->handles_count;
 	read_params.multiple.handles = handles; /* not used in read func */
 	read_params.multiple.variable = true;
 #if defined(CONFIG_BT_EATT)

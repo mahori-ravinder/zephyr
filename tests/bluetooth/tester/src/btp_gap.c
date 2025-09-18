@@ -27,6 +27,8 @@
 #include <zephyr/toolchain.h>
 #include <zephyr/types.h>
 
+#include <zephyr/bluetooth/ead.h>
+
 #include <zephyr/sys/byteorder.h>
 #include <zephyr/net_buf.h>
 
@@ -2096,6 +2098,87 @@ static uint8_t padv_start(const void *cmd, uint16_t cmd_len,
 
 	return BTP_STATUS_SUCCESS;
 }
+static uint8_t is_advertising=0;
+static uint8_t use_payload_1=1;
+#define AD_DATA_0_SIZE 10
+static uint8_t ad_data_0[] = {'E', 'A', 'D', ' ', 'S', 'a', 'm', 'p', 'l', 'e'};
+static uint8_t update_encrypted_adv_data(const void *cmd, uint16_t cmd_len,
+			  void *rsp, uint16_t *rsp_len)
+{
+ const uint8_t session_key[16]={0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+                                            0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10};
+ const uint8_t iv[8]={0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08};
+
+//create a reversed iv array
+ const uint8_t reversed_iv[8] = {iv[7], iv[6], iv[5], iv[4], iv[3], iv[2], iv[1], iv[0]};
+ //create a reversed sessuib jet arrat
+    const uint8_t reversed_session_key[16] = {session_key[15], session_key[14], session_key[13], session_key[12],
+                                            session_key[11], session_key[10], session_key[9], session_key[8],
+                                            session_key[7], session_key[6], session_key[5], session_key[4],
+                                            session_key[3], session_key[2], session_key[1], session_key[0]};
+
+ const uint8_t plaintext[8]={0x07, 0x09, 0x48,0x48, 0x65, 0x6c, 0x6c, 0x6f};
+ const uint8_t plaintext_2[8]={0x07, 0x09, 0x49,0x49, 0x65, 0x6c, 0x6c, 0x6f};
+ const size_t size_ad_1 = sizeof(plaintext);
+ const size_t size_ead_1 = BT_EAD_ENCRYPTED_PAYLOAD_SIZE(size_ad_1);
+ uint8_t ead_1[size_ead_1];
+	int err;
+
+    if(use_payload_1){
+    err = bt_ead_encrypt(reversed_session_key, iv, plaintext, size_ad_1, ead_1);    
+    use_payload_1=0;
+    }
+    else{
+        err = bt_ead_encrypt(reversed_session_key, iv, plaintext_2, size_ad_1, ead_1);
+        use_payload_1=1;
+    }
+    if (err != 0) {
+		LOG_ERR("Error during first encryption");
+        tput_gpio_led1_toggle();
+		return BTP_STATUS_FAILED;
+	}
+    //DECA57E118060948656C6C6F
+    //5 (Rand) + 7(HELLO+AD+LEN)+ 4(MIC) = 16
+    //LEN+AD+DATA
+    //17 (0x11), 31(ENCRYPTED_DATA), 16 (DATA)
+    //ON ELLYSIS IFX : 11 31 DE CA 57 E1 18 06 09 48 65 6C 6C 6F D6 2F 82
+    ///Len = 17 gives 0x12
+    //Len = 16 gives 0x11
+    //Len = 18 gives?
+    const uint8_t ead_2[] = {0xDE, 0xCA, 0x57, 0xE1, 0x18, 0x06, 0x09, 0x48, 0x65, 0x6C, 0x6C, 0x6F};
+ struct bt_data ad_d[] = {
+//    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    //BT_DATA(BT_DATA_NAME_COMPLETE, CONFIG_BT_DEVICE_NAME, sizeof(CONFIG_BT_DEVICE_NAME) - 1),
+	BT_DATA(BT_DATA_ENCRYPTED_AD_DATA, ead_1, size_ead_1),
+    //BT_DATA(BT_DATA_ENCRYPTED_AD_DATA, ead_2, 16)
+};  
+struct bt_le_adv_param param =
+		BT_LE_ADV_PARAM_INIT(_BT_LE_ADV_OPT_CONNECTABLE|BT_LE_ADV_OPT_USE_IDENTITY, BT_GAP_ADV_FAST_INT_MIN_1, BT_GAP_ADV_FAST_INT_MAX_2, NULL);
+
+//err = bt_le_adv_start(&param, ad_d, ARRAY_SIZE(ad_d),  NULL,0);
+if(is_advertising){
+    err = bt_le_adv_stop();
+    is_advertising=0;
+    if (err != 0) {
+        LOG_ERR("Failed to stop advertising (err %d)", err);
+        tput_gpio_led1_toggle();
+        return BTP_STATUS_FAILED;
+    }
+    tput_gpio_led2_toggle();
+    k_sleep(K_MSEC(100));
+}
+err = bt_le_adv_start(&param, ad_d, ARRAY_SIZE(ad_d),  NULL, 0);
+
+
+if (err != 0) {
+        LOG_ERR("Advertising failed to start (err %d)", err);
+        tput_gpio_led1_toggle();
+        return BTP_STATUS_FAILED;
+    }
+    is_advertising=1;
+    tput_gpio_led2_toggle();
+	return BTP_STATUS_SUCCESS;
+}
 
 int tester_gap_padv_stop(struct bt_le_ext_adv *ext_adv)
 {
@@ -2562,10 +2645,18 @@ static const struct btp_handler handlers[] = {
 		.expect_len = sizeof(struct btp_gap_padv_configure_cmd),
 		.func = padv_configure,
 	},
-	{
+	
+    #if 0
+    {
 		.opcode = BTP_GAP_PADV_START,
 		.expect_len = sizeof(struct btp_gap_padv_start_cmd),
 		.func = padv_start,
+	},
+    #endif
+    {
+		.opcode = BTP_GAP_PADV_START,
+		.expect_len = sizeof(struct btp_gap_padv_start_cmd),
+		.func = update_encrypted_adv_data,
 	},
 	{
 		.opcode = BTP_GAP_PADV_STOP,

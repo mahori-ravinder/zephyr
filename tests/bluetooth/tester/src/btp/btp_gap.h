@@ -363,6 +363,58 @@ struct btp_gap_create_big_sync_cmd {
     //TODO:Broadcast code can be a 16 bytes array. For now we will not add it
 } __packed;
 
+#define BTP_GAP_CMD_CREATE_BIG          0x2D
+/**After the command is processed, the IUT shall setup the Data Path for all the BIS,
+                and generate a "BIS Data Path Setup Event" for each BIS. */
+struct btp_gap_create_big_cmd {
+    uint8_t id;//The parameter ID is corresponding to a specific periodic advertising.
+    uint8_t num_bis;
+    //The unit of the Interval parameter is us.
+    uint32_t interval;
+    //The unit of the Latency parameter is ms.
+    uint16_t latency;
+
+    uint8_t rtn;
+    /*Possible values for the PHY parameter are a bit-field or of the following bits:
+                        0 = PHY 1M
+                        1 = PHY 2M
+                        2 = PHY Coded
+    */
+    uint8_t phy;
+
+    /* Possible values for the Packing parameter are:
+                        0 = Sequential
+                        1 = Interleaved*/
+    uint8_t packing;
+
+    /*Possible values for the Framing parameter are:
+                        0 = Unframed PDUs
+                        1 = Framed PDUs, Segmentable mode
+                        2 = Framed PDUs, Unsegmented mode
+                        */
+    uint8_t framing;
+
+    /*Available Encryption:
+                        0 - The BIS will be unencrypted.
+                            The Broadcast_Code parameter should be omitted.
+                        1 - The BIS will be encrypted.
+                            The Broadcast_Code parameter should be existing and the length should
+                            be 16 octets.*/
+    uint8_t encryption;
+    uint8_t broadcast_code[];
+} __packed;
+
+
+#define BTP_GAP_CMD_BIS_BROADCAST          0x2E
+/**This command is used to send a broadcast data over a specific BIS. Before executing
+                this command, the `BIS Data Path Setup Event` (opcode 0x94) should be received
+                before executing this command. */
+struct btp_gap_bis_broadcast_cmd {
+    uint8_t bis_id;//The parameter ID is corresponding to a specific periodic advertising.
+    uint8_t data_len;
+    uint8_t data[];
+} __packed;
+
 /**
  * *********************************************************************
  * Events Below

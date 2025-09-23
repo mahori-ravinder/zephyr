@@ -1404,6 +1404,9 @@ static void auth_passkey_confirm(struct bt_conn *conn, unsigned int passkey)
 	tester_event(BTP_SERVICE_ID_GAP, BTP_GAP_EV_PASSKEY_CONFIRM_REQ, &ev, sizeof(ev));
 }
 
+extern void tput_gpio_led1_toggle(void);
+extern void tput_gpio_led2_toggle(void);
+
 static void auth_cancel(struct bt_conn *conn)
 {
 	/* TODO */
@@ -2098,6 +2101,58 @@ static uint8_t padv_start(const void *cmd, uint16_t cmd_len,
 
 	return BTP_STATUS_SUCCESS;
 }
+
+
+
+#ifdef ENCRYPTED_SCAN
+static uint8_t decrypt_and_return_result(const void *cmd, uint16_t cmd_len,
+			 void *rsp, uint16_t *rsp_len)
+{
+    //session key is = 196A0AD12A61201E136E2ED112DAA957
+    const uint8_t session_key[16] = {0x19, 0x6A, 0x0A, 0xD1, 0x2A, 0x61, 0x20, 0x1E,
+                                            0x13, 0x6E, 0x2E, 0xD1, 0x12, 0xDA, 0xA9, 0x57};
+    //iv is = 9E7A00EFB17AE746
+    const uint8_t iv[8] = {0x9E, 0x7A, 0x00, 0xEF, 0xB1, 0x7A, 0xE7, 0x46};
+    
+    //encrypted payload is = 262a80a73a65dda44884a632ab8c799372a1a7a4bd8d
+    const uint8_t encrypted_payload[22] = {0x26, 0x2A, 0x80, 0xA7, 0x3A, 0x65, 0xDD, 0xA4,
+                                            0x48, 0x84, 0xA6, 0x32, 0xAB, 0x8C, 0x79, 0x93,
+                                            0x72, 0xA1, 0xA7, 0xA4, 0xBD, 0x8D};
+	int err;
+	uint8_t payload[22];
+    const uint8_t reversed_session_key[16] = {0x57, 0xA9, 0xDA, 0x12, 0xD1, 0x2E, 0x6E, 0x13,
+                                               0x1E, 0x20, 0x61, 0x2A, 0xD1, 0x0A, 0x6A, 0x19};
+	err = bt_ead_decrypt(reversed_session_key, iv,
+		   encrypted_payload, sizeof(encrypted_payload),
+		   payload);
+if (err) {
+    #ifdef GPIO_ENABLE
+        tput_gpio_led1_toggle();
+        #endif //GPIO_ENABLE
+		return BTP_STATUS_FAILED;
+	}
+
+    //expected unencrypted = 031A2008081B0136B608DC1BCB
+    const uint8_t unencypted_payload[] = {0x03, 0x1A, 0x20, 0x08, 0x08, 0x1B, 0x01, 0x36,
+                                            0xB6, 0x08, 0xDC, 0x1B, 0xCB};
+    for(uint8_t i=0; i<sizeof(unencypted_payload); i++){
+        if(payload[i] != unencypted_payload[i]){
+            #ifdef GPIO_ENABLE
+            tput_gpio_led1_toggle();
+            #endif
+            LOG_ERR("Decrypted payload does not match expected value at index %d: got 0x%02X, expected 0x%02X", i, payload[i], unencypted_payload[i]);
+            return BTP_STATUS_FAILED;
+        }
+    }
+     #ifdef GPIO_ENABLE
+tput_gpio_led2_toggle();
+#endif //GPIO_ENABLE
+	return BTP_STATUS_SUCCESS;
+}
+
+#endif //ENCRYPTED_SCAN
+
+#ifdef ENCRYPTED_ADV
 static uint8_t is_advertising=0;
 static uint8_t use_payload_1=1;
 #define AD_DATA_0_SIZE 10
@@ -2134,7 +2189,9 @@ static uint8_t update_encrypted_adv_data(const void *cmd, uint16_t cmd_len,
     }
     if (err != 0) {
 		LOG_ERR("Error during first encryption");
+        #ifdef GPIO_ENABLE
         tput_gpio_led1_toggle();
+        #endif
 		return BTP_STATUS_FAILED;
 	}
     //DECA57E118060948656C6C6F
@@ -2161,10 +2218,14 @@ if(is_advertising){
     is_advertising=0;
     if (err != 0) {
         LOG_ERR("Failed to stop advertising (err %d)", err);
+        #ifdef GPIO_ENABLE
         tput_gpio_led1_toggle();
+        #endif
         return BTP_STATUS_FAILED;
     }
+    #ifdef GPIO_ENABLE
     tput_gpio_led2_toggle();
+    #endif
     k_sleep(K_MSEC(100));
 }
 err = bt_le_adv_start(&param, ad_d, ARRAY_SIZE(ad_d),  NULL, 0);
@@ -2172,14 +2233,19 @@ err = bt_le_adv_start(&param, ad_d, ARRAY_SIZE(ad_d),  NULL, 0);
 
 if (err != 0) {
         LOG_ERR("Advertising failed to start (err %d)", err);
+        #ifdef GPIO_ENABLE
         tput_gpio_led1_toggle();
+        #endif
         return BTP_STATUS_FAILED;
     }
     is_advertising=1;
+     #ifdef GPIO_ENABLE
     tput_gpio_led2_toggle();
+    #endif
 	return BTP_STATUS_SUCCESS;
 }
 
+#endif //ENCRYPTED_ADV
 int tester_gap_padv_stop(struct bt_le_ext_adv *ext_adv)
 {
 	int err;
@@ -2497,7 +2563,198 @@ static uint8_t set_rpa_timeout(const void *cmd, uint16_t cmd_len, void *rsp, uin
 	return BTP_STATUS_SUCCESS;
 }
 #endif /* defined(CONFIG_BT_RPA_TIMEOUT_DYNAMIC) */
+//#define ENCRYPTED_SCAN 1
 
+#define ISO_BROADCAST_BIG 1
+
+#ifdef ISO_BROADCAST_BIG
+#include <zephyr/bluetooth/iso.h>
+
+
+#define BIS_ISO_CHAN_COUNT 1
+#define BIG_SDU_INTERVAL_US      (10000)
+#define BUF_ALLOC_TIMEOUT_US     (BIG_SDU_INTERVAL_US * 2U) /* milliseconds */
+#define BIG_TERMINATE_TIMEOUT_US (60 * USEC_PER_SEC) /* microseconds */
+#define INITIAL_TIMEOUT_COUNTER (BIG_TERMINATE_TIMEOUT_US / BIG_SDU_INTERVAL_US)
+
+struct bt_iso_big *big;
+
+
+static uint16_t seq_num;
+
+static void iso_connected(struct bt_iso_chan *chan)
+{
+	const struct bt_iso_chan_path hci_path = {
+		.pid = BT_ISO_DATA_PATH_HCI,
+		.format = BT_HCI_CODING_FORMAT_TRANSPARENT,
+	};
+	int err;
+
+	printk("ISO Channel %p connected\n", chan);
+
+	seq_num = 0U;
+
+	err = bt_iso_setup_data_path(chan, BT_HCI_DATAPATH_DIR_HOST_TO_CTLR, &hci_path);
+	if (err != 0) {
+		printk("Failed to setup ISO TX data path: %d\n", err);
+	}
+
+}
+
+static void iso_disconnected(struct bt_iso_chan *chan, uint8_t reason)
+{
+	printk("ISO Channel %p disconnected with reason 0x%02x\n",
+	       chan, reason);
+}
+
+static void iso_sent(struct bt_iso_chan *chan)
+{
+    //printk("ISO Channel %p sent\n", chan);
+}
+
+
+static struct bt_iso_chan_ops iso_ops = {
+	.connected	= iso_connected,
+	.disconnected	= iso_disconnected,
+	.sent           = iso_sent,
+};
+
+static struct bt_iso_chan_io_qos iso_tx_qos = {
+	.sdu = 64, /* bytes */
+	.rtn = 1,
+	.phy = BT_GAP_LE_PHY_1M,
+};
+
+static struct bt_iso_chan_qos bis_iso_qos = {
+	.tx = &iso_tx_qos,
+};
+
+static struct bt_iso_chan bis_iso_chan[] = {
+	{ .ops = &iso_ops, .qos = &bis_iso_qos, },
+	{ .ops = &iso_ops, .qos = &bis_iso_qos, },
+};
+
+static struct bt_iso_chan *bis[] = {
+	&bis_iso_chan[0],
+	//&bis_iso_chan[1],
+};
+static struct bt_iso_big_create_param big_create_param = {
+	.num_bis = BIS_ISO_CHAN_COUNT,
+	.bis_channels = bis,
+	.interval = BIG_SDU_INTERVAL_US, /* in microseconds */
+	.latency = 20, /* in milliseconds */
+	.packing = BT_ISO_PACKING_INTERLEAVED,
+	.framing = 0, /* 0 - unframed, 1 - framed */
+};
+
+static struct k_work_delayable iso_send_work;
+static uint32_t interval_us = 100U * USEC_PER_MSEC; /* 100 ms */
+static void _send_iso_data_default(struct k_work *work);
+static uint8_t gap_create_iso_big(const void *cmd, uint16_t cmd_len,
+				void *rsp, uint16_t *rsp_len)
+{
+   int err;
+	const struct btp_gap_create_big_cmd *cp = cmd;
+    #ifdef GPIO_ENABLE
+    tput_gpio_led1_toggle();
+	#endif //GPIO_ENABLE
+    //padv 
+    struct bt_le_ext_adv *ext_adv = tester_gap_ext_adv_get(0);
+
+    //This will create big and in connected DB set ISO path as well.
+    err = bt_iso_big_create(ext_adv, &big_create_param, &big);
+    k_sleep(K_MSEC(2000));
+	if (err) {
+        k_sleep(K_MSEC(1000));
+        #ifdef GPIO_ENABLE
+        tput_gpio_led1_toggle();
+        #endif //GPIO_ENABLE
+		printk("Failed to create BIG (err %d)\n", err);
+        return BTP_STATUS_VAL(err);
+	}
+#ifdef GPIO_ENABLE
+    tput_gpio_led2_toggle();
+#endif //GPIO_ENABLE
+    k_work_init_delayable(&iso_send_work, _send_iso_data_default);
+	return BTP_STATUS_VAL(err);
+}
+
+NET_BUF_POOL_FIXED_DEFINE(tx_pool, 
+    CONFIG_BT_ISO_TX_BUF_COUNT,//1
+    BT_ISO_SDU_BUF_SIZE(CONFIG_BT_ISO_TX_MTU),//247
+	CONFIG_BT_CONN_TX_USER_DATA_SIZE,//16
+    NULL);
+
+//static void iso_timer_timeout(struct k_work *work)
+//{
+//   // printk("Timer expired\n");
+//    _send_iso_data_default();
+//    k_work_schedule(&iso_timer_work, K_MSEC(10));
+//}
+static uint16_t seq;
+static void _send_iso_data_default(struct k_work *work){
+    static uint8_t buf_data[CONFIG_BT_ISO_TX_MTU];
+	static bool data_initialized;
+    
+	struct net_buf *buf;
+	int err;
+    static size_t len_to_send = 48;
+
+	if (!data_initialized) {
+		for (int i = 0; i < ARRAY_SIZE(buf_data); i++) {
+			buf_data[i] = (uint8_t)i;
+		}
+
+		data_initialized = true;
+	}
+    tput_gpio_led1_toggle();
+
+//    k_sleep(K_MSEC(1000));
+
+	buf = net_buf_alloc(&tx_pool, K_NO_WAIT);
+    if(NULL==buf){
+//        tput_gpio_led2_toggle();
+ //       printk("Failed to allocate buffer\n");
+        tput_gpio_led2_toggle();
+        return -1;
+    }
+	
+
+	net_buf_reserve(buf, BT_ISO_CHAN_SEND_RESERVE);
+    net_buf_add_mem(buf, buf_data, len_to_send);
+    //k_sleep(K_MSEC(30));
+    //LOG_HEXDUMP_INF(buf->data, buf->len, "SDU payload");
+    //err = bt_iso_chan_send(&bis_iso_chan[0], buf, seq++);
+    err = bt_iso_chan_send(&bis_iso_chan[0], buf, seq++);
+	//k_sleep(K_MSEC(30));
+	if (err<0) {
+//        tput_gpio_led2_toggle();
+//		printk("Failed to create BIG (err %d)\n", err);
+        tput_gpio_led2_toggle();
+        return err;
+	}
+    len_to_send+=10;
+    if (len_to_send > ARRAY_SIZE(buf_data)) {
+        len_to_send = 48;
+	}
+    tput_gpio_led1_toggle();
+    //   tput_gpio_led1_toggle();
+    k_work_schedule(&iso_send_work, K_USEC(interval_us));
+}
+
+static uint8_t gap_send_iso_broadcast_data(const void *cmd, uint16_t cmd_len,
+				void *rsp, uint16_t *rsp_len)
+{
+    int err;
+	const struct btp_gap_create_big_cmd *cp = cmd;
+ 
+    k_work_schedule(&iso_send_work, K_USEC(interval_us));
+    k_sleep(K_MSEC(1000));
+    return BTP_STATUS_SUCCESS;
+}
+
+
+#endif //ISO_BROADCAST_BIG
 static const struct btp_handler handlers[] = {
 	{
 		.opcode = BTP_GAP_READ_SUPPORTED_COMMANDS,
@@ -2646,23 +2903,32 @@ static const struct btp_handler handlers[] = {
 		.func = padv_configure,
 	},
 	
-    #if 0
+    #ifndef ENCRYPTED_ADV
     {
 		.opcode = BTP_GAP_PADV_START,
 		.expect_len = sizeof(struct btp_gap_padv_start_cmd),
 		.func = padv_start,
 	},
-    #endif
+    #else
     {
 		.opcode = BTP_GAP_PADV_START,
 		.expect_len = sizeof(struct btp_gap_padv_start_cmd),
 		.func = update_encrypted_adv_data,
 	},
-	{
+    #endif //ENCRYPTED_ADV
+    #ifndef ENCRYPTED_SCAN
+    {
 		.opcode = BTP_GAP_PADV_STOP,
 		.expect_len = sizeof(struct btp_gap_padv_stop_cmd),
 		.func = padv_stop,
 	},
+    #else
+    {
+		.opcode = BTP_GAP_PADV_STOP,
+		.expect_len = sizeof(struct btp_gap_padv_stop_cmd),
+		.func = decrypt_and_return_result,
+	},
+    #endif//ENCRYPTED_SCAN
 	{
 		.opcode = BTP_GAP_PADV_SET_DATA,
 		.expect_len = BTP_HANDLER_LENGTH_VARIABLE,
@@ -2706,6 +2972,16 @@ static const struct btp_handler handlers[] = {
 		.func = set_rpa_timeout,
 	},
 #endif /* defined(CONFIG_BT_RPA_TIMEOUT_DYNAMIC) */
+    {
+        .opcode=BTP_GAP_CMD_CREATE_BIG,
+        .expect_len=sizeof(struct btp_gap_create_big_cmd),
+        .func=gap_create_iso_big,
+    },
+    {
+        .opcode=BTP_GAP_CMD_BIS_BROADCAST,
+        .expect_len=sizeof(struct btp_gap_bis_broadcast_cmd),
+        .func=gap_send_iso_broadcast_data,
+    },
 };
 
 uint8_t tester_init_gap(void)

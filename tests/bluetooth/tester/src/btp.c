@@ -92,7 +92,7 @@ static const struct btp_handler *find_btp_handler(uint8_t service, uint8_t opcod
 }
 void tput_gpio_led1_toggle(void);
 void tput_gpio_led2_toggle(void);
-
+//#define  CHECKS_DISABLED 1
 static void cmd_handler(void *p1, void *p2, void *p3)
 {
 	while (1) {
@@ -109,14 +109,26 @@ static void cmd_handler(void *p1, void *p2, void *p3)
 			hdr->service, hdr->opcode, hdr->index);
 
 		btp = find_btp_handler(hdr->service, hdr->opcode);
-        if(0x20==hdr->opcode && hdr->service==0x02){
+        if(0x2E==hdr->opcode && hdr->service==0x01){
                 //Recieved the message at least here.
                 //Toggle 1 if we received the message
-                tput_gpio_led1_toggle();
-            }
+                //#ifdef GPIO_ENABLE
+               // tput_gpio_led2_toggle();
+               // tput_gpio_led1_toggle();
+               // //#endif //GPIO_ENABLE
+               // k_sleep(K_MSEC(2000));
+               // tput_gpio_led2_toggle();
+               // tput_gpio_led1_toggle();
+                
+                
+
+        LOG_DBG("cmd service 0x%02x opcode 0x%02x index 0x%02x",
+			hdr->service, hdr->opcode, hdr->index);
+
+        }
 		if (btp) {
 			uint16_t len = sys_le16_to_cpu(hdr->len);
-
+#ifndef CHECKS_DISABLED
 			if (len > BTP_DATA_MAX_SIZE) {
 				status = BTP_STATUS_FAILED;
 			} else if (btp->index != hdr->index) {
@@ -124,17 +136,26 @@ static void cmd_handler(void *p1, void *p2, void *p3)
 			} else if ((btp->expect_len >= 0) && (btp->expect_len != len)) {
 				status = BTP_STATUS_FAILED;
 			} else {
+                tput_gpio_led2_toggle();
+                k_sleep(K_MSEC(1000));
+                tput_gpio_led2_toggle();
+#endif
 				status = btp->func(hdr->data, len,
 						   cmd->rsp, &rsp_len);
                            //toggle 2 if executed
+                            #ifdef GPIO_ENABLE
                            tput_gpio_led2_toggle();
-			}
+                           #endif //GPIO_ENABLE
 
+#ifndef CHECKS_DISABLED
+			}
+#endif //CHECKS_DISABLED
 			/* This means that caller likely overwrote rsp buffer */
 			__ASSERT_NO_MSG(rsp_len <= BTP_DATA_MAX_SIZE);
 		} else {
 			status = BTP_STATUS_UNKNOWN_CMD;
 		}
+       
 		/* Allow to delay only 1 command. This is for convenience only
 		 * of using cmd data without need of copying those in async
 		 * functions. Should be not needed eventually.

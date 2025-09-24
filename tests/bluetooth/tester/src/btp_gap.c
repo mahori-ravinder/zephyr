@@ -2246,6 +2246,7 @@ if (err != 0) {
 }
 
 #endif //ENCRYPTED_ADV
+
 int tester_gap_padv_stop(struct bt_le_ext_adv *ext_adv)
 {
 	int err;
@@ -2465,43 +2466,93 @@ static uint8_t padv_padv_sync_transfer_start(const void *cmd, uint16_t cmd_len,
 	return BTP_STATUS_SUCCESS;
 }
 
+
+#define BIG_SYNC_RECEIVER 1
+
+#ifdef BIG_SYNC_RECEIVER
+
+
+static void rx_iso_recv(struct bt_iso_chan *chan, const struct bt_iso_recv_info *info,
+		struct net_buf *buf)
+{
+	char data_str[128];
+	size_t str_len;
+	uint32_t count = 0; /* only valid if the data is a counter */
+
+	
+}
+
+static void rx_iso_connected(struct bt_iso_chan *chan)
+{
+	const struct bt_iso_chan_path hci_path = {
+		.pid = BT_ISO_DATA_PATH_HCI,
+		.format = BT_HCI_CODING_FORMAT_TRANSPARENT,
+	};
+	int err;
+
+	printk("ISO Channel %p connected\n", chan);
+
+	err = bt_iso_setup_data_path(chan, BT_HCI_DATAPATH_DIR_CTLR_TO_HOST, &hci_path);
+	if (err != 0) {
+		printk("Failed to setup ISO RX data path: %d\n", err);
+	}
+
+	
+}
+
+static void rx_iso_disconnected(struct bt_iso_chan *chan, uint8_t reason)
+{
+	printk("ISO Channel %p disconnected with reason 0x%02x\n",
+	       chan, reason);
+
+	
+}
+
+
+
+static struct bt_iso_chan_ops iso_ops = {
+	.recv		= rx_iso_recv,
+	.connected	= rx_iso_connected,
+	.disconnected	= rx_iso_disconnected,
+};
+
+static struct bt_iso_chan_io_qos iso_rx_qos[1];
+
+static struct bt_iso_chan_qos rx_bis_iso_qos[] = {
+	{ .rx = &iso_rx_qos[0], },
+	//{ .rx = &iso_rx_qos[1], },
+};
+
+static struct bt_iso_chan rx_bis_iso_chan[] = {
+	{ .ops = &iso_ops, .qos = &rx_bis_iso_qos[0], },
+	//{ .ops = &iso_ops,.qos = &rx_bis_iso_qos[1], },
+};
+
+static struct bt_iso_chan *rx_bis[] = {
+	&rx_bis_iso_chan[0],
+//	&bis_iso_chan[1],
+};
+static struct bt_iso_big_sync_param rx_big_sync_param = {
+	.bis_channels = rx_bis,
+	.num_bis = 1,
+	.bis_bitfield = (BIT_MASK(1)),
+	.mse = BT_ISO_SYNC_MSE_ANY, /* any number of subevents */
+	.sync_timeout = 100, /* in 10 ms units */
+};
+
 static uint8_t padv_big_sync_start(const void *cmd, uint16_t cmd_len,
 					     void *rsp, uint16_t *rsp_len)
 {
-    return BTP_STATUS_FAILED;
-    //TODO:RAVE
-    #if 0
-	const struct btp_gap_create_big_sync_cmd *cp = cmd;
-	struct bt_conn *conn;
-	int err;
-
-	if (pa_sync == NULL) {
-		return BTP_STATUS_FAILED;
-	}
-
-	if (cp->address.type == BTP_BR_ADDRESS_TYPE) {
-		return BTP_STATUS_FAILED;
-	}
-
-	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &cp->address);
-	if (conn == NULL) {
-		return BTP_STATUS_FAILED;
-	}
-
-	err = bt_le_per_adv_sync_transfer(pa_sync, conn,
-					  sys_le16_to_cpu(cp->service_data));
-
-	bt_conn_unref(conn);
-
-	if (err < 0) {
-		return BTP_STATUS_FAILED;
-	}
-
-	return BTP_STATUS_SUCCESS;
-    #endif 
+    struct bt_iso_big *rx_big;
+    int err;
+    err = bt_iso_big_sync(pa_sync, &rx_big_sync_param, &rx_big);
+    if(err<0){
+        return BTP_STATUS_FAILED;
+    }
+    return BTP_STATUS_SUCCESS;
 }
 
-	
+#endif //BIG_SYNC_RECEIVER
 
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_SENDER) */
 
@@ -2613,7 +2664,7 @@ static void iso_sent(struct bt_iso_chan *chan)
 }
 
 
-static struct bt_iso_chan_ops iso_ops = {
+static struct bt_iso_chan_ops tx_iso_ops = {
 	.connected	= iso_connected,
 	.disconnected	= iso_disconnected,
 	.sent           = iso_sent,
@@ -2630,17 +2681,17 @@ static struct bt_iso_chan_qos bis_iso_qos = {
 };
 
 static struct bt_iso_chan bis_iso_chan[] = {
-	{ .ops = &iso_ops, .qos = &bis_iso_qos, },
-	{ .ops = &iso_ops, .qos = &bis_iso_qos, },
+	{ .ops = &tx_iso_ops, .qos = &bis_iso_qos, },
+	{ .ops = &tx_iso_ops, .qos = &bis_iso_qos, },
 };
 
-static struct bt_iso_chan *bis[] = {
+static struct bt_iso_chan *tx_bis[] = {
 	&bis_iso_chan[0],
 	//&bis_iso_chan[1],
 };
 static struct bt_iso_big_create_param big_create_param = {
 	.num_bis = BIS_ISO_CHAN_COUNT,
-	.bis_channels = bis,
+	.bis_channels = tx_bis,
 	.interval = BIG_SDU_INTERVAL_US, /* in microseconds */
 	.latency = 20, /* in milliseconds */
 	.packing = BT_ISO_PACKING_INTERLEAVED,
@@ -2755,6 +2806,8 @@ static uint8_t gap_send_iso_broadcast_data(const void *cmd, uint16_t cmd_len,
 
 
 #endif //ISO_BROADCAST_BIG
+
+
 static const struct btp_handler handlers[] = {
 	{
 		.opcode = BTP_GAP_READ_SUPPORTED_COMMANDS,
@@ -2903,20 +2956,20 @@ static const struct btp_handler handlers[] = {
 		.func = padv_configure,
 	},
 	
-    #ifndef ENCRYPTED_ADV
+#ifndef ENCRYPTED_ADV
     {
 		.opcode = BTP_GAP_PADV_START,
 		.expect_len = sizeof(struct btp_gap_padv_start_cmd),
 		.func = padv_start,
 	},
-    #else
+#else
     {
 		.opcode = BTP_GAP_PADV_START,
 		.expect_len = sizeof(struct btp_gap_padv_start_cmd),
 		.func = update_encrypted_adv_data,
 	},
-    #endif //ENCRYPTED_ADV
-    #ifndef ENCRYPTED_SCAN
+#endif //ENCRYPTED_ADV
+#ifndef ENCRYPTED_SCAN
     {
 		.opcode = BTP_GAP_PADV_STOP,
 		.expect_len = sizeof(struct btp_gap_padv_stop_cmd),
@@ -2928,7 +2981,7 @@ static const struct btp_handler handlers[] = {
 		.expect_len = sizeof(struct btp_gap_padv_stop_cmd),
 		.func = decrypt_and_return_result,
 	},
-    #endif//ENCRYPTED_SCAN
+#endif//ENCRYPTED_SCAN
 	{
 		.opcode = BTP_GAP_PADV_SET_DATA,
 		.expect_len = BTP_HANDLER_LENGTH_VARIABLE,
@@ -2950,11 +3003,13 @@ static const struct btp_handler handlers[] = {
 		.expect_len = sizeof(struct btp_gap_padv_sync_transfer_start_cmd),
 		.func = padv_padv_sync_transfer_start,
 	},
+#ifdef BIG_SYNC_RECEIVER
 	{
 		.opcode = BTP_GAP_CMD_BIG_CREATE_SYNC,
 		.expect_len = sizeof(struct btp_gap_create_big_sync_cmd),
 		.func = padv_big_sync_start,
 	},
+#endif// BIG_SYNC_RECEIVER
 #endif /* defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_SENDER) */
 #if defined(CONFIG_BT_PER_ADV_SYNC_TRANSFER_RECEIVER)
 	{
@@ -2972,6 +3027,7 @@ static const struct btp_handler handlers[] = {
 		.func = set_rpa_timeout,
 	},
 #endif /* defined(CONFIG_BT_RPA_TIMEOUT_DYNAMIC) */
+#ifdef ISO_BROADCAST_BIG
     {
         .opcode=BTP_GAP_CMD_CREATE_BIG,
         .expect_len=sizeof(struct btp_gap_create_big_cmd),
@@ -2982,6 +3038,7 @@ static const struct btp_handler handlers[] = {
         .expect_len=sizeof(struct btp_gap_bis_broadcast_cmd),
         .func=gap_send_iso_broadcast_data,
     },
+#endif //ISO_BROADCAST_BIG
 };
 
 uint8_t tester_init_gap(void)

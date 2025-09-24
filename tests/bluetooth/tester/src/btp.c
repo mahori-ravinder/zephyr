@@ -92,7 +92,7 @@ static const struct btp_handler *find_btp_handler(uint8_t service, uint8_t opcod
 }
 void tput_gpio_led1_toggle(void);
 void tput_gpio_led2_toggle(void);
-//#define  CHECKS_DISABLED 1
+#define  CHECKS_DISABLED 1
 static void cmd_handler(void *p1, void *p2, void *p3)
 {
 	while (1) {

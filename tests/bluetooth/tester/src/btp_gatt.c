@@ -1742,6 +1742,70 @@ static uint8_t read_multiple_var(const void *cmd, uint16_t cmd_len,
     return BTP_STATUS_DELAY_REPLY;
 }
 
+#define MULTI_WITH_BEARER 1
+#ifdef MULTI_WITH_BEARER
+
+
+static uint8_t read_multiple_var_with_bearer(const void *cmd, uint16_t cmd_len,
+				 void *rsp, uint16_t *rsp_len)
+{
+    //tput_gpio_led2_toggle();
+	const struct btp_gatt_read_multiple_with_bearer_cmd *cp = cmd;
+	uint16_t handles[5];
+    uint16_t bearers[5];
+	struct bt_conn *conn;
+	int i;
+
+	
+
+	for (i = 0; i <cp->handles_count; i++) {
+		handles[i] = sys_le16_to_cpu(cp->handles[i]);
+        bearers[i] = cp->bearers[i];
+	}
+
+	conn = bt_conn_lookup_addr_le(BT_ID_DEFAULT, &cp->address);
+	if (!conn) {
+		return BTP_STATUS_FAILED;
+	}
+
+	if (!gatt_buf_reserve(sizeof(struct btp_gatt_read_rp))) {
+		bt_conn_unref(conn);
+		return BTP_STATUS_FAILED;
+	}
+
+	read_params.func = read_cb;
+	read_params.handle_count = cp->handles_count;
+	read_params.multiple.handles = handles; /* not used in read func */
+	read_params.multiple.variable = true;
+#if defined(CONFIG_BT_EATT)
+ read_params.chan_opt = bearers[0] == 1 ? BT_ATT_CHAN_OPT_ENHANCED_ONLY : BT_ATT_CHAN_OPT_UNENHANCED_ONLY;
+#endif
+
+	/* TODO should be handled as user_data via CONTAINER_OF macro */
+	btp_opcode = BTP_GATT_EV_READ_MULTI_BEARER_VALUE;
+
+	if (bt_gatt_read(conn, &read_params) < 0) {
+		gatt_buf_clear();
+		bt_conn_unref(conn);
+		return BTP_STATUS_FAILED;
+	}
+
+    k_sleep(K_MSEC(200));
+    #if defined(CONFIG_BT_EATT)
+    read_params.chan_opt = bearers[1] == 1 ? BT_ATT_CHAN_OPT_ENHANCED_ONLY : BT_ATT_CHAN_OPT_UNENHANCED_ONLY;
+    #endif
+	
+if (bt_gatt_read(conn, &read_params) < 0) {
+		gatt_buf_clear();
+		bt_conn_unref(conn);
+		return BTP_STATUS_FAILED;
+	}
+	bt_conn_unref(conn);
+    //tput_gpio_led1_toggle();
+	
+    return BTP_STATUS_SUCCESS;
+}
+#endif //#ifdef MULTI_WITH_BEARER
 static uint8_t write_without_rsp(const void *cmd, uint16_t cmd_len,
 				 void *rsp, uint16_t *rsp_len)
 {
@@ -2606,6 +2670,13 @@ static const struct btp_handler handlers[] = {
 		.expect_len = BTP_HANDLER_LENGTH_VARIABLE,
 		.func = notify_mult,
 	},
+#ifdef MULTI_WITH_BEARER
+    {
+        .opcode = BTP_GATT_READ_MULTIPLE_WITH_BEARER,
+        .expect_len = BTP_HANDLER_LENGTH_VARIABLE,
+        .func = read_multiple_var_with_bearer,
+    },
+#endif//MULTI_WITH_BEARER
 };
 
 uint8_t tester_init_gatt(void)

@@ -283,6 +283,14 @@ struct btp_gatt_reliable_write_rp {
 	uint8_t att_response;
 } __packed;
 
+#define BTP_GATT_READ_MULTIPLE_WITH_BEARER			0x22
+struct btp_gatt_read_multiple_with_bearer_cmd {
+	bt_addr_le_t address;
+	uint8_t handles_count;
+    uint8_t bearers[5];//Use only == handles_count
+	uint16_t handles[];
+} __packed;
+
 #define BTP_GATT_CFG_NOTIFY			0x1a
 #define BTP_GATT_CFG_INDICATE			0x1b
 struct btp_gatt_cfg_notify_cmd {
@@ -371,3 +379,6 @@ struct btp_gatt_attr_value_changed_ev {
 	uint16_t data_length;
 	uint8_t data[];
 } __packed;
+
+
+#define BTP_GATT_EV_READ_MULTI_BEARER_VALUE		0x82

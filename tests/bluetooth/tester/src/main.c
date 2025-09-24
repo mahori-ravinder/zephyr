@@ -20,7 +20,7 @@ extern void tput_gpio_init(void);
 int main(void)
 {
 #ifdef GPIO_ENABLE
-    tput_gpio_init();
+    //tput_gpio_init();
 #endif //GPIO_ENABLE
 	tester_init();
 	return 0;

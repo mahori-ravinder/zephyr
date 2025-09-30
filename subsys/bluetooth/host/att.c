@@ -3808,9 +3808,19 @@ int bt_eatt_reconfigure(struct bt_conn *conn, uint16_t mtu)
 #endif /* CONFIG_BT_TESTING */
 #endif /* CONFIG_BT_EATT */
 
+#if defined(PTS_L2CAP_TIM_BV_03_C)
+static int first_conn_done=0;
+#endif//PTS_L2CAP_TIM_BV_03_C
 static int bt_eatt_accept(struct bt_conn *conn, struct bt_l2cap_server *server,
 			  struct bt_l2cap_chan **chan)
 {
+#if defined(PTS_L2CAP_TIM_BV_03_C)
+    if(!first_conn_done) {
+        first_conn_done=1;
+    } else {
+        return -4;
+    }
+#endif //#ifdef  PTS_L2CAP_TIM_BV_03_C
 	struct bt_att_chan *att_chan = att_get_fixed_chan(conn);
 	struct bt_att *att = att_chan->att;
 

@@ -2632,7 +2632,9 @@ struct bt_iso_big *big;
 
 
 static uint16_t seq_num;
-
+static struct k_work_delayable iso_send_work;
+static uint32_t interval_us = 10U * USEC_PER_MSEC; /* 100 ms */
+static void _send_iso_data_default(struct k_work *work);
 static void iso_connected(struct bt_iso_chan *chan)
 {
 	const struct bt_iso_chan_path hci_path = {
@@ -2649,7 +2651,8 @@ static void iso_connected(struct bt_iso_chan *chan)
 	if (err != 0) {
 		printk("Failed to setup ISO TX data path: %d\n", err);
 	}
-
+/* Start periodic sending only after channel + data path ready */
+    //k_work_schedule(&iso_send_work, K_NO_WAIT);
 }
 
 static void iso_disconnected(struct bt_iso_chan *chan, uint8_t reason)
@@ -2698,12 +2701,11 @@ static struct bt_iso_big_create_param big_create_param = {
 	.framing = 0, /* 0 - unframed, 1 - framed */
 };
 
-static struct k_work_delayable iso_send_work;
-static uint32_t interval_us = 100U * USEC_PER_MSEC; /* 100 ms */
-static void _send_iso_data_default(struct k_work *work);
+
 static uint8_t gap_create_iso_big(const void *cmd, uint16_t cmd_len,
 				void *rsp, uint16_t *rsp_len)
 {
+    
    int err;
 	const struct btp_gap_create_big_cmd *cp = cmd;
     #ifdef GPIO_ENABLE
@@ -2723,10 +2725,11 @@ static uint8_t gap_create_iso_big(const void *cmd, uint16_t cmd_len,
 		printk("Failed to create BIG (err %d)\n", err);
         return BTP_STATUS_VAL(err);
 	}
+    k_work_init_delayable(&iso_send_work, _send_iso_data_default);
 #ifdef GPIO_ENABLE
     tput_gpio_led2_toggle();
 #endif //GPIO_ENABLE
-    k_work_init_delayable(&iso_send_work, _send_iso_data_default);
+    
 	return BTP_STATUS_VAL(err);
 }
 
@@ -2746,7 +2749,8 @@ static uint16_t seq;
 static void _send_iso_data_default(struct k_work *work){
     static uint8_t buf_data[CONFIG_BT_ISO_TX_MTU];
 	static bool data_initialized;
-    
+        const size_t max_sdu = bis_iso_chan[0].qos->tx->sdu; /* negotiated SDU */
+
 	struct net_buf *buf;
 	int err;
     static size_t len_to_send = 48;
@@ -2758,16 +2762,19 @@ static void _send_iso_data_default(struct k_work *work){
 
 		data_initialized = true;
 	}
-    tput_gpio_led1_toggle();
+    //tput_gpio_led1_toggle();
 
 //    k_sleep(K_MSEC(1000));
-
+if (len_to_send > max_sdu) {
+        len_to_send = max_sdu;
+    }
 	buf = net_buf_alloc(&tx_pool, K_NO_WAIT);
     if(NULL==buf){
 //        tput_gpio_led2_toggle();
  //       printk("Failed to allocate buffer\n");
-        tput_gpio_led2_toggle();
-        return -1;
+        //tput_gpio_led2_toggle();
+        k_work_reschedule(&iso_send_work, K_USEC(interval_us));
+        return;
     }
 	
 
@@ -2781,16 +2788,17 @@ static void _send_iso_data_default(struct k_work *work){
 	if (err<0) {
 //        tput_gpio_led2_toggle();
 //		printk("Failed to create BIG (err %d)\n", err);
-        tput_gpio_led2_toggle();
-        return err;
+        //tput_gpio_led2_toggle();
+        k_work_reschedule(&iso_send_work, K_USEC(interval_us));
+        return;
 	}
     len_to_send+=10;
-    if (len_to_send > ARRAY_SIZE(buf_data)) {
-        len_to_send = 48;
-	}
-    tput_gpio_led1_toggle();
+    if (len_to_send > max_sdu) {
+        len_to_send = 2;
+    }
+    //tput_gpio_led1_toggle();
     //   tput_gpio_led1_toggle();
-    k_work_schedule(&iso_send_work, K_USEC(interval_us));
+    k_work_reschedule(&iso_send_work, K_USEC(interval_us));
 }
 
 static uint8_t gap_send_iso_broadcast_data(const void *cmd, uint16_t cmd_len,
@@ -2801,6 +2809,8 @@ static uint8_t gap_send_iso_broadcast_data(const void *cmd, uint16_t cmd_len,
  
     k_work_schedule(&iso_send_work, K_USEC(interval_us));
     k_sleep(K_MSEC(1000));
+   
+    
     return BTP_STATUS_SUCCESS;
 }
 
